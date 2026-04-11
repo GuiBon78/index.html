@@ -378,7 +378,16 @@ const ABAT=0.8;
 let excludedNames=JSON.parse(localStorage.getItem('primes2026excluded')||'["Deisy De Leon","Closeur Externe"]');
 function saveExcluded(){localStorage.setItem('primes2026excluded',JSON.stringify(excludedNames));}
 
-function norm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();}
+function norm(s){
+  return String(s||'')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/['’`"]/g,' ')
+    .replace(/[^a-z0-9]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
 function isCompteSpecial(n){const nc=norm(n);return COMPTES_SPECIAUX.some(c=>nc===c||nc.startsWith(norm(c)));}
 function isRenewalDI(nomCompte,accordCPF){return isCompteSpecial(nomCompte)||(String(accordCPF||'').toLowerCase()==='oui');}
 function isCPF(s){const n=norm(s);return n.includes('cpf')||n.includes('compte personnel de formation')||n.includes('compte personnel');}
@@ -1049,17 +1058,25 @@ function parseCSV(text){
 }
 function autoDetectCols(headers){
   const map={};
-  const find=kws=>headers.find(h=>kws.some(k=>norm(h).includes(norm(k))))||'';
-  map.propCompte=find(['proprietaire du compte','account owner']);
-  map.propOppty=find(['proprietaire de l opportunite','opportunity owner']);
-  map.nomCompte=find(['nom du compte','account name']);
-  map.sales=map.propCompte||find(['proprietaire','owner','commercial']);
-  map.montant=find(['montant','amount','valeur','prix']);
-  map.type=find(['type','kind','nature']);
-  map.source=find(['source','financement','funding','cpf','opco']);
-  map.date=find(['cloture','closing','close','date']);
-  map.oppty=find(['nom de l opportunite','nom opportunite','nom opport']);
-  map.accordCPF=find(['accord cpf entreprise','accord cpf','cpf entreprise']);
+  const hNorm=headers.map(h=>({raw:h,n:norm(h)}));
+  const find=kws=>{
+    for(const k of kws){
+      const nk=norm(k);
+      const exact=hNorm.find(h=>h.n===nk);if(exact)return exact.raw;
+      const inc=hNorm.find(h=>h.n.includes(nk)||nk.includes(h.n));if(inc)return inc.raw;
+    }
+    return '';
+  };
+  map.propCompte=find(['proprietaire du compte','owner account','account owner','ownerid']);
+  map.propOppty=find(['proprietaire de l opportunite','owner opportunity','opportunity owner','opportunity owner full name']);
+  map.nomCompte=find(['nom du compte','account name','compte']);
+  map.sales=map.propCompte||find(['proprietaire','owner','commercial','sales']);
+  map.montant=find(['montant','amount','valeur','prix','acv','arr']);
+  map.type=find(['type opportunite','type','kind','nature','new business existing business']);
+  map.source=find(['source','financement','funding','cpf','opco','lead source']);
+  map.date=find(['date de cloture','cloture','closing date','close date','date close']);
+  map.oppty=find(['nom de l opportunite','nom opportunite','opportunity name','nom opport']);
+  map.accordCPF=find(['accord cpf entreprise','accord cpf','cpf entreprise','cpf agreement']);
   return map;
 }
 function applyAbat(montant,source){const s=norm(source);if(s==='entreprise')return montant;return montant*ABAT;}
@@ -1125,6 +1142,9 @@ function computePOByComAndQ(mapped){
 function processParsedCSV(text){
   const parsed=parseCSV(text);if(!parsed||!parsed.rows||parsed.rows.length===0){showToastMgr('Aucune donnée détectée.','⚠️');return;}
   sfRawRows=parsed.rows;sfColMap=autoDetectCols(parsed.headers);sfMapped=applyRules(sfRawRows,sfColMap);
+  if(!sfColMap.montant||!sfColMap.sales){
+    showToastMgr('Colonnes clés non reconnues (Commercial/Montant). Vérifiez l’export Salesforce.','⚠️');
+  }
   showToastMgr(parsed.rows.length+' lignes importées','📥');renderSalesforce();
 }
 function processParsedWorkbook(arrayBuffer){
